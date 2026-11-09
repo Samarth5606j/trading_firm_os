@@ -1,0 +1,16 @@
+# Python / Virtual Environment
+__pycache__/
+*.py[cod]
+backend/.env
+backend/paper_trading.db
+backend/venv/
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env*.local
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
