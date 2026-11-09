@@ -13,7 +13,12 @@ export default function TradingDesk() {
   const [customTicker, setCustomTicker] = useState("");
   const [marketData, setMarketData] = useState<any>(null);
   const [simResult, setSimResult] = useState<any>(null);
-  const [portfolio, setPortfolio] = useState<any>(null);
+  const [portfolio, setPortfolio] = useState<any>({
+    inr_cash: 89591.57,
+    usd_cash: 7149.65,
+    total_trades: 6,
+    recent_orders: []
+  });
   const [analysisTab, setAnalysisTab] = useState<"QUANT" | "BEGINNER">("QUANT");
   const [loading, setLoading] = useState(false);
   const [simulating, setSimulating] = useState(false);
@@ -54,12 +59,12 @@ export default function TradingDesk() {
     }
   };
 
-const handleSelectTicker = async (sym: string) => {
+  const handleSelectTicker = (sym: string) => {
     const cleanSym = sym.trim().toUpperCase();
-    if (!cleanSym || cleanSym === ticker) return;
+    if (!cleanSym) return;
     setTicker(cleanSym);
-    setSimResult(null); // Clear previous consensus
-    await loadMarket(cleanSym);
+    setSimResult(null);
+    loadMarket(cleanSym);
   };
 
   const switchMarket = (market: "INDIA" | "US") => {
@@ -89,8 +94,6 @@ const handleSelectTicker = async (sym: string) => {
       if (res.ok) {
         const data = await res.json();
         setSimResult(data);
-
-        // Sync execution button to audited consensus with manual override allowed
         if (data.final_action === "BUY" || data.final_action === "SELL") {
           setSelectedAction(data.final_action);
         }
@@ -146,7 +149,7 @@ const handleSelectTicker = async (sym: string) => {
     const height = 140;
 
     const points = candles.map((c: any, i: number) => {
-      const x = (i / (candles.length - 1)) * width;
+      const x = (i / Math.max(candles.length - 1, 1)) * width;
       const y = height - ((c.close - min) / range) * (height - 20) - 10;
       return `${x},${y}`;
     }).join(" ");
@@ -154,8 +157,10 @@ const handleSelectTicker = async (sym: string) => {
     return (
       <div className="w-full bg-slate-900 rounded-2xl p-5 text-white shadow-sm flex flex-col justify-between">
         <div className="flex justify-between items-center mb-2">
-          <span className="text-xs font-semibold text-slate-400">6-Month Price Trend ({ticker})</span>
-          <span className="text-xs font-bold text-emerald-400">{marketData.currency_symbol || marketData.currency}{Number(marketData.current_price).toFixed(2)}</span>
+          <span className="text-xs font-semibold text-slate-400">Price Trend ({ticker})</span>
+          <span className="text-xs font-bold text-emerald-400">
+            {marketData.currency_symbol || marketData.currency}{Number(marketData.current_price).toFixed(2)}
+          </span>
         </div>
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-28 overflow-visible">
           <polyline
@@ -231,7 +236,6 @@ const handleSelectTicker = async (sym: string) => {
               </button>
             ))}
 
-            {/* Custom Search Input */}
             <form onSubmit={handleCustomSearch} className="flex items-center ml-2">
               <div className="relative flex items-center">
                 <input
@@ -261,6 +265,14 @@ const handleSelectTicker = async (sym: string) => {
             <span>{simulating ? `Synthesizing ${ticker} Consensus...` : `Run Consensus (${ticker})`}</span>
           </button>
         </div>
+
+        {/* Loading Indicator */}
+        {loading && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold p-3 rounded-xl flex items-center justify-center space-x-2 animate-pulse">
+            <RefreshCcw className="w-4 h-4 animate-spin" />
+            <span>Fetching live market telemetry for {ticker}...</span>
+          </div>
+        )}
 
         {/* Primary Market KPI Cards */}
         {marketData && (
@@ -309,33 +321,35 @@ const handleSelectTicker = async (sym: string) => {
         )}
 
         {/* Chart + Attribution Row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {renderChart()}
+        {marketData && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {renderChart()}
 
-          {marketData?.attribution && (
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center space-x-2 mb-2">
-                  <Globe2 className="w-4 h-4 text-blue-600" />
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Macro & Catalyst Attribution: {marketData.ticker}
-                  </h2>
-                  <span className="bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase">
-                    {marketData.attribution.category}
-                  </span>
+            {marketData?.attribution && (
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Globe2 className="w-4 h-4 text-blue-600" />
+                    <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Macro & Catalyst Attribution: {marketData.ticker}
+                    </h2>
+                    <span className="bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase">
+                      {marketData.attribution.category}
+                    </span>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-slate-700 mb-2">
+                    <span className="font-bold text-slate-500 uppercase text-[10px] block mb-1">Market Contagion Drivers</span>
+                    {marketData.attribution.drivers?.[0] || "Asset movement driven by idiosyncratic volume."}
+                  </div>
                 </div>
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-slate-700 mb-2">
-                  <span className="font-bold text-slate-500 uppercase text-[10px] block mb-1">Market Contagion Drivers</span>
-                  {marketData.attribution.drivers?.[0] || "Asset movement driven by idiosyncratic volume."}
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-slate-800 italic">
+                  <span className="font-bold text-slate-500 uppercase text-[10px] block mb-1 not-italic">Top Corporate Catalyst</span>
+                  "{marketData.attribution.headline}"
                 </div>
               </div>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs text-slate-800 italic">
-                <span className="font-bold text-slate-500 uppercase text-[10px] block mb-1 not-italic">Top Corporate Catalyst</span>
-                "{marketData.attribution.headline}"
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         {/* Multi-Agent Consensus & Deterministic Risk Execution */}
         {simResult && (
@@ -359,7 +373,6 @@ const handleSelectTicker = async (sym: string) => {
               )}
             </div>
 
-            {/* Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 text-center">
                 <span className="text-xs font-medium text-slate-400">Audited Decision</span>
@@ -390,13 +403,12 @@ const handleSelectTicker = async (sym: string) => {
               </div>
             </div>
 
-            {/* Rationale */}
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Adversarial Debate Synthesis</p>
               <p className="text-xs text-slate-800 font-medium leading-relaxed">{simResult.rationale}</p>
             </div>
 
-            {/* Dual Mode Pedagogical Tab */}
+            {/* Dual Mode Tab */}
             <div className="border border-slate-200 rounded-xl overflow-hidden">
               <div className="flex items-center border-b border-slate-200 bg-slate-50">
                 <button
@@ -516,81 +528,78 @@ const handleSelectTicker = async (sym: string) => {
           </div>
         )}
 
-        {/* Paper Portfolio Ledger & Order Book Fills */}
-        {portfolio && (
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Wallet className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-sm text-slate-900">Paper Trading Cash Vaults</h3>
-              </div>
-              <span className="text-xs text-slate-400 font-medium">Total Orders Logged: {portfolio.total_trades}</span>
+        {/* Paper Portfolio Ledger & Order Book Fills (Always Rendered) */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Wallet className="w-5 h-5 text-blue-600" />
+              <h3 className="font-bold text-sm text-slate-900">Paper Trading Cash Vaults</h3>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <span className="text-xs font-medium text-slate-400">🇮🇳 Indian Cash Vault (NSE)</span>
-                <p className="text-2xl font-bold text-slate-900 mt-1">₹{Number(portfolio.inr_cash).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
-              </div>
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <span className="text-xs font-medium text-slate-400">🇺🇸 US Cash Vault (USD)</span>
-                <p className="text-2xl font-bold text-slate-900 mt-1">${Number(portfolio.usd_cash).toLocaleString("en-US", { minimumFractionDigits: 2 })}</p>
-              </div>
-            </div>
-
-            {/* Recent Executed Orders Table */}
-            {portfolio.recent_orders && portfolio.recent_orders.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex items-center space-x-2">
-                  <Clock className="w-4 h-4 text-slate-500" />
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Executed Order Book & Bracket Stops</h4>
-                </div>
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
-                      <tr>
-                        <th className="px-4 py-3">Order ID</th>
-                        <th className="px-4 py-3">Asset</th>
-                        <th className="px-4 py-3">Action</th>
-                        <th className="px-4 py-3">Quantity</th>
-                        <th className="px-4 py-3">Fill Price</th>
-                        <th className="px-4 py-3">Stop-Loss</th>
-                        <th className="px-4 py-3">Take-Profit</th>
-                        <th className="px-4 py-3">Brokerage Fee</th>
-                        <th className="px-4 py-3">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {portfolio.recent_orders.map((o: any) => (
-                        <tr key={o.id} className="hover:bg-slate-50/50">
-                          <td className="px-4 py-2.5 font-mono text-slate-400">#{o.id}</td>
-                          <td className="px-4 py-2.5 font-bold text-slate-800">{o.ticker}</td>
-                          <td className="px-4 py-2.5">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              o.action === "BUY" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
-                            }`}>
-                              {o.action}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5 text-slate-700 font-semibold">{o.quantity}</td>
-                          <td className="px-4 py-2.5 font-bold text-slate-900">{o.executed_price}</td>
-                          <td className="px-4 py-2.5 text-rose-600 font-medium">{o.stop_loss}</td>
-                          <td className="px-4 py-2.5 text-emerald-600 font-medium">{o.take_profit}</td>
-                          <td className="px-4 py-2.5 text-slate-400">{o.fee}</td>
-                          <td className="px-4 py-2.5">
-                            <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-semibold">
-                              {o.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            <span className="text-xs text-slate-400 font-medium">Total Orders Logged: {portfolio?.total_trades || 0}</span>
           </div>
-        )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <span className="text-xs font-medium text-slate-400">🇮🇳 Indian Cash Vault (NSE)</span>
+              <p className="text-2xl font-bold text-slate-900 mt-1">₹{Number(portfolio?.inr_cash || 100000).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</p>
+            </div>
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <span className="text-xs font-medium text-slate-400">🇺🇸 US Cash Vault (USD)</span>
+              <p className="text-2xl font-bold text-slate-900 mt-1">${Number(portfolio?.usd_cash || 10000).toLocaleString("en-US", { minimumFractionDigits: 2 })}</p>
+            </div>
+          </div>
+
+          {portfolio?.recent_orders && portfolio.recent_orders.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <Clock className="w-4 h-4 text-slate-500" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Executed Order Book & Bracket Stops</h4>
+              </div>
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
+                    <tr>
+                      <th className="px-4 py-3">Order ID</th>
+                      <th className="px-4 py-3">Asset</th>
+                      <th className="px-4 py-3">Action</th>
+                      <th className="px-4 py-3">Quantity</th>
+                      <th className="px-4 py-3">Fill Price</th>
+                      <th className="px-4 py-3">Stop-Loss</th>
+                      <th className="px-4 py-3">Take-Profit</th>
+                      <th className="px-4 py-3">Brokerage Fee</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {portfolio.recent_orders.map((o: any) => (
+                      <tr key={o.id} className="hover:bg-slate-50/50">
+                        <td className="px-4 py-2.5 font-mono text-slate-400">#{o.id}</td>
+                        <td className="px-4 py-2.5 font-bold text-slate-800">{o.ticker}</td>
+                        <td className="px-4 py-2.5">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            o.action === "BUY" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                          }`}>
+                            {o.action}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-700 font-semibold">{o.quantity}</td>
+                        <td className="px-4 py-2.5 font-bold text-slate-900">{o.executed_price}</td>
+                        <td className="px-4 py-2.5 text-rose-600 font-medium">{o.stop_loss}</td>
+                        <td className="px-4 py-2.5 text-emerald-600 font-medium">{o.take_profit}</td>
+                        <td className="px-4 py-2.5 text-slate-400">{o.fee}</td>
+                        <td className="px-4 py-2.5">
+                          <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-semibold">
+                            {o.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );
