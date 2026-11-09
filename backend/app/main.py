@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.api import routes_market, routes_simulate, routes_paper
 from app.database.models import init_db
-from app.api.routes_market import router as market_router
-from app.api.routes_simulate import router as simulate_router
-from app.api.routes_paper import router as paper_router
 
-app = FastAPI(title="Autonomous Multi-Agent Trading Desk", version="2.0.0")
+init_db()
+
+app = FastAPI(title="Autonomous Trading Desk OS", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,14 +15,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-def on_startup():
-    init_db()
-
-app.include_router(market_router)
-app.include_router(simulate_router)
-app.include_router(paper_router)
+app.include_router(routes_market.router)
+app.include_router(routes_simulate.router)
+app.include_router(routes_paper.router)
 
 @app.get("/")
-def health():
-    return {"status": "online"}
+def health_check():
+    return {"status": "online", "system": "Autonomous Trading Desk Monorepo"}
