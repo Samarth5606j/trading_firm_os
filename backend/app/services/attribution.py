@@ -1,38 +1,55 @@
 import yfinance as yf
+from datetime import datetime, timedelta
 
-def analyze_attribution(ticker: str, price_change_pct: float) -> dict:
-    is_indian = ticker.endswith((".NS", ".BO"))
+# Simple in-memory cache for macro benchmark moves to prevent redundant downloads
+_MACRO_CACHE = {
+    "timestamp": None,
+    "sp500": 0.0,
+    "nifty": 0.0
+}
+
+def _get_benchmark_changes():
+    now = datetime.utcnow()
+    if _MACRO_CACHE["timestamp"] and (now - _MACRO_CACHE["timestamp"]) < timedelta(minutes=15):
+        return _MACRO_CACHE["sp500"], _MACRO_CACHE["nifty"]
+
     sp500_change = 0.0
-    nifty_change = None
-    top_headline = "Asset rebalancing across institutional desks."
+    nifty_change = 0.0
 
-    # 1. Fetch S&P 500 benchmark safely
     try:
         sp500 = yf.Ticker("^GSPC").history(period="2d")
         if len(sp500) >= 2:
             sp500_change = round(((sp500['Close'].iloc[-1] - sp500['Close'].iloc[-2]) / sp500['Close'].iloc[-2]) * 100, 2)
     except Exception:
-        sp500_change = 0.0
+        pass
 
-    # 2. Fetch Nifty 50 benchmark safely for Indian Equities
-    if is_indian:
-        try:
-            nifty = yf.Ticker("^NSEI").history(period="2d")
-            if len(nifty) >= 2:
-                nifty_change = round(((nifty['Close'].iloc[-1] - nifty['Close'].iloc[-2]) / nifty['Close'].iloc[-2]) * 100, 2)
-        except Exception:
-            nifty_change = 0.0
+    try:
+        nifty = yf.Ticker("^NSEI").history(period="2d")
+        if len(nifty) >= 2:
+            nifty_change = round(((nifty['Close'].iloc[-1] - nifty['Close'].iloc[-2]) / nifty['Close'].iloc[-2]) * 100, 2)
+    except Exception:
+        pass
 
-    # 3. Fetch corporate news headline safely
+    _MACRO_CACHE["sp500"] = sp500_change
+    _MACRO_CACHE["nifty"] = nifty_change
+    _MACRO_CACHE["timestamp"] = now
+    return sp500_change, nifty_change
+
+
+def analyze_attribution(ticker: str, price_change_pct: float) -> dict:
+    is_indian = ticker.endswith((".NS", ".BO"))
+    sp500_change, nifty_change = _get_benchmark_changes()
+    
+    top_headline = "Asset rebalancing across institutional desks."
     try:
         stock_obj = yf.Ticker(ticker)
+        # Fast read of news without hanging
         news = getattr(stock_obj, "news", []) or []
         if news and isinstance(news, list) and len(news) > 0:
             top_headline = news[0].get("title", top_headline)
     except Exception:
         pass
 
-    # 4. Attribution Categorization Logic
     drivers = []
     category = "IDIOSYNCRATIC"
 
@@ -40,7 +57,7 @@ def analyze_attribution(ticker: str, price_change_pct: float) -> dict:
         if abs(sp500_change) >= 0.8:
             drivers.append(f"US Markets Contagion: S&P 500 shifted {sp500_change}%, impacting FII flows.")
             category = "GLOBAL_CONTAGION"
-        if nifty_change is not None and abs(nifty_change) >= 0.6:
+        if abs(nifty_change) >= 0.6:
             drivers.append(f"Domestic Index Momentum: Nifty 50 moved {nifty_change}%, carrying high-beta components.")
             category = "DOMESTIC_MACRO"
     else:
@@ -56,5 +73,5 @@ def analyze_attribution(ticker: str, price_change_pct: float) -> dict:
         "drivers": drivers,
         "headline": top_headline,
         "sp500_change": sp500_change,
-        "nifty_change": nifty_change
+        "nifty_change": nifty_change if is_indian else None
     }

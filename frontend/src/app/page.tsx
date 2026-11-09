@@ -54,12 +54,12 @@ export default function TradingDesk() {
     }
   };
 
-  const handleSelectTicker = (sym: string) => {
+const handleSelectTicker = async (sym: string) => {
     const cleanSym = sym.trim().toUpperCase();
-    if (!cleanSym) return;
+    if (!cleanSym || cleanSym === ticker) return;
     setTicker(cleanSym);
-    setSimResult(null); // Clear previous consensus diagnosis
-    loadMarket(cleanSym);
+    setSimResult(null); // Clear previous consensus
+    await loadMarket(cleanSym);
   };
 
   const switchMarket = (market: "INDIA" | "US") => {

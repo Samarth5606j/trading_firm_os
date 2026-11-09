@@ -1,42 +1,40 @@
 import yfinance as yf
 import pandas as pd
-import numpy as np
+
+_DATA_CACHE = {}
 
 def fetch_market_data(ticker: str) -> dict:
     ticker = ticker.upper().strip()
     is_indian = ticker.endswith((".NS", ".BO"))
     currency = "₹" if is_indian else "$"
 
-    # Configure session and ticker
+    # Fetch 3 months of daily data (sufficient for 50 SMA and 14 RSI)
     stock = yf.Ticker(ticker)
-    
-    # Try 6mo first, fallback to 1y or 3mo if empty
-    df = stock.history(period="6mo")
-    if df.empty or len(df) < 20:
-        df = stock.history(period="1y")
-    
-    if df.empty or len(df) < 15:
-        raise ValueError(f"Insufficient historical market data available for ticker '{ticker}'.")
+    df = stock.history(period="3mo")
 
-    df = df.dropna(subset=['Close', 'Open', 'High', 'Low']).copy()
-    
-    # Dynamic SMA calculation
-    df['SMA_20'] = df['Close'].rolling(window=min(20, len(df))).mean()
-    df['SMA_50'] = df['Close'].rolling(window=min(50, len(df))).mean()
-    df['SMA_20'] = df['SMA_20'].bfill()
-    df['SMA_50'] = df['SMA_50'].bfill()
+    if df.empty or len(df) < 5:
+        # Fallback to 6mo if 3mo is somehow sparse
+        df = stock.history(period="6mo")
 
-    # RSI (14-day)
+    if df.empty or len(df) < 5:
+        raise ValueError(f"Could not retrieve trading history for {ticker}. Verify ticker validity.")
+
+    df = df.dropna(subset=['Close']).copy()
+
+    # Dynamic SMAs
+    df['SMA_20'] = df['Close'].rolling(window=min(20, len(df))).mean().bfill()
+    df['SMA_50'] = df['Close'].rolling(window=min(50, len(df))).mean().bfill()
+
+    # RSI (14)
     delta = df['Close'].diff()
-    gain = delta.where(delta > 0, 0.0).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0.0)).rolling(window=14).mean()
+    gain = delta.where(delta > 0, 0.0).rolling(window=min(14, len(df))).mean()
+    loss = (-delta.where(delta < 0, 0.0)).rolling(window=min(14, len(df))).mean()
     rs = gain / (loss + 1e-9)
-    df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI'] = df['RSI'].fillna(50.0)
+    df['RSI'] = (100 - (100 / (1 + rs))).fillna(50.0)
 
     latest = df.iloc[-1]
     prev = df.iloc[-2] if len(df) >= 2 else latest
-    
+
     change_pct = 0.0
     if prev['Close'] > 0:
         change_pct = round(((latest['Close'] - prev['Close']) / prev['Close']) * 100, 2)
@@ -44,10 +42,10 @@ def fetch_market_data(ticker: str) -> dict:
     pe_ratio = 0.0
     try:
         fast_info = getattr(stock, 'fast_info', None)
-        if fast_info and hasattr(fast_info, 'pe_ratio'):
-            pe_ratio = round(float(fast_info.pe_ratio or 0.0), 2)
+        if fast_info and hasattr(fast_info, 'pe_ratio') and fast_info.pe_ratio:
+            pe_ratio = round(float(fast_info.pe_ratio), 2)
         else:
-            info = stock.info or {}
+            info = getattr(stock, 'info', {}) or {}
             pe_ratio = round(float(info.get('trailingPE') or info.get('forwardPE') or 0.0), 2)
     except Exception:
         pe_ratio = 0.0
