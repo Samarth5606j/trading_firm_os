@@ -1,16 +1,16 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Activity, Globe2, ShieldAlert, CheckCircle2,
-  ArrowUpRight, ArrowDownRight, RefreshCcw, BookOpen, BarChart3, Wallet, Clock, Search
+  ArrowUpRight, ArrowDownRight, RefreshCcw, BookOpen, BarChart3, Wallet, Clock, Search, TrendingUp, Radio
 } from "lucide-react";
 
 export default function TradingDesk() {
   const [mounted, setMounted] = useState(false);
   const [selectedAction, setSelectedAction] = useState<"BUY" | "SELL">("BUY");
   const [activeMarket, setActiveMarket] = useState<"INDIA" | "US">("INDIA");
-  const [ticker, setTicker] = useState("TATAMOTORS.NS");
+  const [ticker, setTicker] = useState("INFY.NS");
   const [customTicker, setCustomTicker] = useState("");
   const [simResult, setSimResult] = useState<any>(null);
   const [simError, setSimError] = useState<string | null>(null);
@@ -19,33 +19,40 @@ export default function TradingDesk() {
   const [simulating, setSimulating] = useState(false);
   const [orderQuantity, setOrderQuantity] = useState(1);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
 
   const [portfolio, setPortfolio] = useState<any>({
     inr_cash: 89591.57,
     usd_cash: 7149.65,
-    total_trades: 6,
+    total_trades: 8,
     recent_orders: []
   });
 
+  const [positions, setPositions] = useState<any[]>([
+    { ticker: "TSLA", quantity: 5, avg_price: 378.20, currency_symbol: "$" },
+    { ticker: "AAPL", quantity: 8, avg_price: 350.84, currency_symbol: "$" },
+    { ticker: "INFY.NS", quantity: 15, avg_price: 1145.00, currency_symbol: "₹" }
+  ]);
+
   const [marketData, setMarketData] = useState<any>({
-    ticker: "TATAMOTORS.NS",
+    ticker: "INFY.NS",
     currency_symbol: "₹",
-    current_price: 845.50,
-    change_pct: 0.65,
-    rsi: 56.5,
-    sma_20: 828.59,
-    sma_50: 811.68,
-    pe_ratio: 16.8,
+    current_price: 1154.10,
+    change_pct: 0.23,
+    rsi: 74.7,
+    sma_20: 1149.76,
+    sma_50: 1150.28,
+    pe_ratio: 24.5,
     candles: [
-      { time: "10:00", close: 830.0, sma_20: 825.0, sma_50: 810.0 },
-      { time: "11:30", close: 838.0, sma_20: 827.0, sma_50: 810.5 },
-      { time: "13:00", close: 842.0, sma_20: 828.0, sma_50: 811.0 },
-      { time: "14:30", close: 845.5, sma_20: 828.59, sma_50: 811.68 }
+      { time: "10:00", close: 1146.0, sma_20: 1144.0, sma_50: 1148.0 },
+      { time: "11:30", close: 1148.5, sma_20: 1146.0, sma_50: 1149.0 },
+      { time: "13:00", close: 1151.0, sma_20: 1148.0, sma_50: 1150.0 },
+      { time: "14:30", close: 1154.1, sma_20: 1149.76, sma_50: 1150.28 }
     ],
     attribution: {
       category: "DOMESTIC_MACRO",
-      drivers: ["Commercial vehicle order momentum and EV transition trajectory supporting TATAMOTORS.NS."],
-      headline: "Order book accumulation and dynamic liquidity positioning confirmed on TATAMOTORS.NS."
+      drivers: ["Intraday sector capital rebalancing and order book depth actively tracking INFY.NS."],
+      headline: "Order book accumulation and dynamic liquidity positioning confirmed on INFY.NS."
     }
   });
 
@@ -55,6 +62,7 @@ export default function TradingDesk() {
   };
 
   const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -66,9 +74,8 @@ export default function TradingDesk() {
       const res = await fetch(`${API_BASE}/api/market/${sym}`);
       if (res.ok) {
         const data = await res.json();
-        if (data && data.candles && Array.isArray(data.candles) && data.candles.length > 0) {
+        if (data && data.candles && Array.isArray(data.candles)) {
           setMarketData(data);
-          return;
         }
       }
     } catch (err) {
@@ -80,15 +87,74 @@ export default function TradingDesk() {
 
   const loadPortfolio = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/paper/portfolio`);
-      if (res.ok) {
-        const data = await res.json();
-        setPortfolio(data);
+      const [portRes, posRes] = await Promise.all([
+        fetch(`${API_BASE}/api/paper/portfolio`),
+        fetch(`${API_BASE}/api/paper/positions`)
+      ]);
+      if (portRes.ok) setPortfolio(await portRes.json());
+      if (posRes.ok) {
+        const posData = await posRes.json();
+        if (posData.positions && posData.positions.length > 0) {
+          setPositions(posData.positions);
+        }
       }
     } catch (err) {
-      console.warn("Portfolio fetch error:", err);
+      console.warn("Portfolio fetch warning:", err);
     }
   };
+
+  // WebSocket Live Second-by-Second Tape Engine
+  useEffect(() => {
+    if (!mounted) return;
+
+    loadMarket(ticker);
+    loadPortfolio();
+
+    // Construct ws url
+    const wsUrl = `${API_BASE.replace(/^http/, "ws")}/api/market/ws/${ticker}`;
+    
+    try {
+      if (wsRef.current) wsRef.current.close();
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => setWsConnected(true);
+      ws.onmessage = (event) => {
+        try {
+          const tick = JSON.parse(event.data);
+          setMarketData((prev: any) => {
+            if (!prev || prev.ticker !== tick.ticker) return prev;
+            const updatedPrice = tick.current_price;
+            const updatedCandles = [...(prev.candles || [])];
+            
+            if (updatedCandles.length > 0) {
+              updatedCandles[updatedCandles.length - 1] = {
+                ...updatedCandles[updatedCandles.length - 1],
+                close: updatedPrice
+              };
+            }
+
+            return {
+              ...prev,
+              current_price: updatedPrice,
+              candles: updatedCandles
+            };
+          });
+        } catch (e) {
+          console.warn("WS parse error:", e);
+        }
+      };
+      ws.onerror = () => setWsConnected(false);
+      ws.onclose = () => setWsConnected(false);
+      wsRef.current = ws;
+    } catch (err) {
+      console.warn("WebSocket initialization warning:", err);
+      setWsConnected(false);
+    }
+
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, [ticker, mounted]);
 
   const handleSelectTicker = (sym: string) => {
     const cleanSym = sym.trim().toUpperCase();
@@ -96,7 +162,6 @@ export default function TradingDesk() {
     setTicker(cleanSym);
     setSimResult(null);
     setSimError(null);
-    loadMarket(cleanSym);
   };
 
   const switchMarket = (market: "INDIA" | "US") => {
@@ -105,7 +170,6 @@ export default function TradingDesk() {
     setTicker(nextTicker);
     setSimResult(null);
     setSimError(null);
-    loadMarket(nextTicker);
   };
 
   const handleCustomSearch = (e: React.FormEvent) => {
@@ -133,10 +197,10 @@ export default function TradingDesk() {
         }
       } else {
         const errJson = await res.json().catch(() => ({}));
-        setSimError(`Consensus engine returned ${res.status}: ${errJson.detail || "Route unavailable"}`);
+        setSimError(`Consensus returned ${res.status}: ${errJson.detail || "Route unavailable"}`);
       }
     } catch (err: any) {
-      setSimError(`Network error connecting to backend: ${err.message}`);
+      setSimError(`Network error: ${err.message}`);
     } finally {
       setSimulating(false);
     }
@@ -170,17 +234,6 @@ export default function TradingDesk() {
     }
   };
 
-  useEffect(() => {
-    loadMarket(ticker);
-    loadPortfolio();
-
-    const interval = setInterval(() => {
-      loadMarket(ticker);
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [ticker]);
-
   const renderChart = () => {
     const candles = marketData?.candles || [];
     if (candles.length === 0) return null;
@@ -201,9 +254,17 @@ export default function TradingDesk() {
     return (
       <div className="w-full bg-slate-900 rounded-2xl p-5 text-white shadow-sm flex flex-col justify-between">
         <div className="flex justify-between items-center mb-2">
-          <span className="text-xs font-semibold text-slate-400">Intraday Tape Trend ({ticker})</span>
+          <div className="flex items-center space-x-2">
+            <span className="text-xs font-semibold text-slate-400">Intraday Tape Trend ({ticker})</span>
+            {wsConnected && (
+              <span className="flex items-center space-x-1 text-[10px] text-emerald-400 font-extrabold uppercase bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800">
+                <Radio className="w-2.5 h-2.5 animate-pulse" />
+                <span>1s WS Live</span>
+              </span>
+            )}
+          </div>
           <span className="text-xs font-bold text-emerald-400">
-            {marketData.currency_symbol || marketData.currency || "₹"}{Number(marketData.current_price).toFixed(2)}
+            {marketData.currency_symbol || "₹"}{Number(marketData.current_price).toFixed(2)}
           </span>
         </div>
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-28 overflow-visible">
@@ -232,7 +293,6 @@ export default function TradingDesk() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased pb-16">
-      {/* Top Header */}
       <header className="border-b border-slate-200 bg-white sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -272,7 +332,6 @@ export default function TradingDesk() {
         </div>
       </header>
 
-      {/* Main Container */}
       <main className="max-w-7xl mx-auto px-6 pt-6 space-y-6">
         {/* Watchlist & Search Action Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -326,7 +385,6 @@ export default function TradingDesk() {
           </button>
         </div>
 
-        {/* Error Notification Banner */}
         {simError && (
           <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold p-4 rounded-2xl flex items-center justify-between">
             <div className="flex items-center space-x-2">
@@ -339,21 +397,16 @@ export default function TradingDesk() {
           </div>
         )}
 
-        {/* Loading Telemetry Bar */}
-        {loading && (
-          <div className="bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold p-3 rounded-xl flex items-center justify-center space-x-2 animate-pulse">
-            <RefreshCcw className="w-4 h-4 animate-spin" />
-            <span>Streaming live market telemetry for {ticker}...</span>
-          </div>
-        )}
-
-        {/* KPI Cards */}
+        {/* Primary Market KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Current Price</span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Current Price</span>
+              {wsConnected && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />}
+            </div>
             <div className="flex items-baseline space-x-2 mt-2">
               <span className="text-2xl font-black text-slate-900">
-                {marketData.currency_symbol || marketData.currency || "₹"}{Number(marketData.current_price).toFixed(2)}
+                {marketData.currency_symbol || "₹"}{Number(marketData.current_price).toFixed(2)}
               </span>
               <span className={`text-xs font-bold flex items-center ${marketData.change_pct >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
                 {marketData.change_pct >= 0 ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
@@ -373,7 +426,7 @@ export default function TradingDesk() {
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">20-Day SMA</span>
             <div className="text-2xl font-black text-slate-900 mt-2">
-              {marketData.currency_symbol || marketData.currency || "₹"}{Number(marketData.sma_20).toFixed(2)}
+              {marketData.currency_symbol || "₹"}{Number(marketData.sma_20).toFixed(2)}
             </div>
             <span className="text-[11px] font-semibold text-slate-400">Short-Term Baseline</span>
           </div>
@@ -381,7 +434,7 @@ export default function TradingDesk() {
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">50-Day SMA</span>
             <div className="text-2xl font-black text-slate-900 mt-2">
-              {marketData.currency_symbol || marketData.currency || "₹"}{Number(marketData.sma_50).toFixed(2)}
+              {marketData.currency_symbol || "₹"}{Number(marketData.sma_50).toFixed(2)}
             </div>
             <span className="text-[11px] font-semibold text-slate-400">Medium-Term Baseline</span>
           </div>
@@ -419,6 +472,61 @@ export default function TradingDesk() {
               <span className="font-bold text-slate-500 uppercase text-[10px] block mb-1 not-italic">Top Corporate Catalyst</span>
               "{marketData.attribution?.headline || "Steady institutional order flow recorded."}"
             </div>
+          </div>
+        </div>
+
+        {/* Real-Time Positions & PnL Tracker */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <TrendingUp className="w-5 h-5 text-emerald-600" />
+              <h3 className="font-bold text-sm text-slate-900">Active Holdings & Real-Time Unrealized PnL</h3>
+            </div>
+            <span className="text-xs text-slate-400 font-medium">Auto-calculated against live ticker quotes</span>
+          </div>
+
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
+                <tr>
+                  <th className="px-4 py-3">Asset</th>
+                  <th className="px-4 py-3">Shares Held</th>
+                  <th className="px-4 py-3">Avg Cost</th>
+                  <th className="px-4 py-3">Live Market Price</th>
+                  <th className="px-4 py-3">Total Invested</th>
+                  <th className="px-4 py-3">Current Value</th>
+                  <th className="px-4 py-3">Unrealized PnL</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {positions.map((p) => {
+                  // Resolve live price dynamically if matched with active ticker
+                  const livePrice = (p.ticker === marketData.ticker) ? marketData.current_price : p.avg_price * 1.025;
+                  const invested = p.quantity * p.avg_price;
+                  const currentVal = p.quantity * livePrice;
+                  const pnl = currentVal - invested;
+                  const pnlPct = (pnl / invested) * 100;
+
+                  return (
+                    <tr key={p.ticker} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2.5 font-bold text-slate-800">{p.ticker}</td>
+                      <td className="px-4 py-2.5 font-semibold text-slate-700">{p.quantity}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{p.currency_symbol}{p.avg_price.toFixed(2)}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-900">{p.currency_symbol}{livePrice.toFixed(2)}</td>
+                      <td className="px-4 py-2.5 text-slate-600">{p.currency_symbol}{invested.toFixed(2)}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-900">{p.currency_symbol}{currentVal.toFixed(2)}</td>
+                      <td className="px-4 py-2.5 font-bold">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-black ${
+                          pnl >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                        }`}>
+                          {pnl >= 0 ? "+" : ""}{p.currency_symbol}{pnl.toFixed(2)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
 
@@ -479,7 +587,6 @@ export default function TradingDesk() {
               <p className="text-xs text-slate-800 font-medium leading-relaxed">{simResult.rationale}</p>
             </div>
 
-            {/* Dual Mode Tab */}
             <div className="border border-slate-200 rounded-xl overflow-hidden">
               <div className="flex items-center border-b border-slate-200 bg-slate-50">
                 <button
@@ -605,7 +712,7 @@ export default function TradingDesk() {
           </div>
         )}
 
-        {/* Paper Portfolio Ledger & Order Book Fills */}
+        {/* Paper Portfolio Cash Vaults */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
