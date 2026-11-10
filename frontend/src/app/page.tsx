@@ -53,7 +53,8 @@ export default function TradingDesk() {
     US: ["NVDA", "AAPL", "MSFT", "TSLA", "GOOGL"],
   };
 
-  const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+const RAW_URL = process.env.NEXT_PUBLIC_API_URL || "https://trading-firm-backend.onrender.com";
+const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
 
   const loadMarket = async (sym: string) => {
     setLoading(true);
