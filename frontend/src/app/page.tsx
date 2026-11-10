@@ -9,9 +9,10 @@ import {
 export default function TradingDesk() {
   const [selectedAction, setSelectedAction] = useState<"BUY" | "SELL">("BUY");
   const [activeMarket, setActiveMarket] = useState<"INDIA" | "US">("INDIA");
-  const [ticker, setTicker] = useState("RELIANCE.NS");
+  const [ticker, setTicker] = useState("TATAMOTORS.NS");
   const [customTicker, setCustomTicker] = useState("");
   const [simResult, setSimResult] = useState<any>(null);
+  const [simError, setSimError] = useState<string | null>(null);
   const [analysisTab, setAnalysisTab] = useState<"QUANT" | "BEGINNER">("QUANT");
   const [loading, setLoading] = useState(false);
   const [simulating, setSimulating] = useState(false);
@@ -26,24 +27,24 @@ export default function TradingDesk() {
   });
 
   const [marketData, setMarketData] = useState<any>({
-    ticker: "RELIANCE.NS",
+    ticker: "TATAMOTORS.NS",
     currency_symbol: "₹",
-    current_price: 1317.00,
-    change_pct: 0.23,
-    rsi: 71.9,
-    sma_20: 1223.47,
-    sma_50: 1235.97,
-    pe_ratio: 21.8,
+    current_price: 845.50,
+    change_pct: 0.65,
+    rsi: 58.4,
+    sma_20: 828.59,
+    sma_50: 811.68,
+    pe_ratio: 24.5,
     candles: [
-      { time: "2026-10-01", close: 1220.0, sma_20: 1215.0, sma_50: 1210.0 },
-      { time: "2026-10-15", close: 1245.0, sma_20: 1225.0, sma_50: 1218.0 },
-      { time: "2026-11-01", close: 1290.0, sma_20: 1240.0, sma_50: 1225.0 },
-      { time: "2026-11-09", close: 1317.0, sma_20: 1223.47, sma_50: 1235.97 }
+      { time: "2026-10-01", close: 790.0, sma_20: 785.0, sma_50: 780.0 },
+      { time: "2026-10-15", close: 810.0, sma_20: 795.0, sma_50: 788.0 },
+      { time: "2026-11-01", close: 835.0, sma_20: 815.0, sma_50: 800.0 },
+      { time: "2026-11-09", close: 845.5, sma_20: 828.59, sma_50: 811.68 }
     ],
     attribution: {
-      category: "IDIOSYNCRATIC",
-      drivers: ["Asset movement is decoupled from broader macro indices; price action driven by asset-specific order book volume."],
-      headline: "Asset rebalancing across institutional desks."
+      category: "DOMESTIC_MACRO",
+      drivers: ["Sector volume and institutional cash flow supporting TATAMOTORS.NS."],
+      headline: "Order book momentum observed for TATAMOTORS.NS."
     }
   });
 
@@ -52,7 +53,7 @@ export default function TradingDesk() {
     US: ["NVDA", "AAPL", "MSFT", "TSLA", "GOOGL"],
   };
 
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+  const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
   const loadMarket = async (sym: string) => {
     setLoading(true);
@@ -65,18 +66,17 @@ export default function TradingDesk() {
           return;
         }
       }
-      // Guaranteed safe fallback if network or Yahoo blocks the call
       const isInd = sym.endsWith(".NS") || sym.endsWith(".BO");
       const base = sym.includes("TATA") ? 845.50 : sym.includes("TCS") ? 3840.20 : sym.includes("INFY") ? 1860.00 : sym.includes("HDFC") ? 1720.00 : sym.includes("NVDA") ? 142.50 : 220.00;
-      
+
       setMarketData({
         ticker: sym,
         currency_symbol: isInd ? "₹" : "$",
         current_price: base,
         change_pct: 0.65,
         rsi: 58.4,
-        sma_20: roundToTwo(base * 0.98),
-        sma_50: roundToTwo(base * 0.96),
+        sma_20: Math.round(base * 0.98 * 100) / 100,
+        sma_50: Math.round(base * 0.96 * 100) / 100,
         pe_ratio: 24.5,
         candles: [
           { time: "2026-10-01", close: base * 0.94, sma_20: base * 0.93, sma_50: base * 0.92 },
@@ -97,8 +97,6 @@ export default function TradingDesk() {
     }
   };
 
-  const roundToTwo = (val: number) => Math.round(val * 100) / 100;
-
   const loadPortfolio = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/paper/portfolio`);
@@ -116,6 +114,7 @@ export default function TradingDesk() {
     if (!cleanSym) return;
     setTicker(cleanSym);
     setSimResult(null);
+    setSimError(null);
     loadMarket(cleanSym);
   };
 
@@ -124,6 +123,7 @@ export default function TradingDesk() {
     const nextTicker = market === "INDIA" ? "RELIANCE.NS" : "NVDA";
     setTicker(nextTicker);
     setSimResult(null);
+    setSimError(null);
     loadMarket(nextTicker);
   };
 
@@ -137,6 +137,7 @@ export default function TradingDesk() {
 
   const runSimulation = async () => {
     setSimulating(true);
+    setSimError(null);
     try {
       const res = await fetch(`${API_BASE}/api/simulate`, {
         method: "POST",
@@ -149,9 +150,12 @@ export default function TradingDesk() {
         if (data.final_action === "BUY" || data.final_action === "SELL") {
           setSelectedAction(data.final_action);
         }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setSimError(`Consensus engine returned ${res.status}: ${errJson.detail || "Route not found or timeout"}`);
       }
-    } catch (err) {
-      console.error("Simulation error:", err);
+    } catch (err: any) {
+      setSimError(`Network error connecting to backend: ${err.message}`);
     } finally {
       setSimulating(false);
     }
@@ -268,7 +272,7 @@ export default function TradingDesk() {
         </div>
       </header>
 
-      {/* Main Container */}
+      {/* Main Workspace */}
       <main className="max-w-7xl mx-auto px-6 pt-6 space-y-6">
         {/* Watchlist & Search Action Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -317,6 +321,19 @@ export default function TradingDesk() {
             <span>{simulating ? `Synthesizing ${ticker} Consensus...` : `Run Consensus (${ticker})`}</span>
           </button>
         </div>
+
+        {/* Error Notification Banner */}
+        {simError && (
+          <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold p-4 rounded-2xl flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{simError}</span>
+            </div>
+            <button onClick={() => setSimError(null)} className="text-rose-500 hover:text-rose-800 underline ml-4">
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Loading Indicator */}
         {loading && (
@@ -401,7 +418,7 @@ export default function TradingDesk() {
           </div>
         </div>
 
-        {/* Multi-Agent Consensus & Deterministic Risk Execution */}
+        {/* Consensus & Deterministic Risk Execution */}
         {simResult && (
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
