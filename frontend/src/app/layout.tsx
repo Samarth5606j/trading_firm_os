@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Autonomous Trading Desk",
-  description: "Institutional Multi-Agent Consensus Platform",
+  description: "Neuro-Symbolic Consensus & Paper Execution Desk",
 };
 
 export default function RootLayout({
@@ -12,8 +12,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-slate-50 antialiased">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning className="bg-slate-50 antialiased">
+        {children}
+      </body>
     </html>
   );
 }

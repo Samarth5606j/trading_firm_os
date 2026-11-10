@@ -21,4 +21,4 @@ app.include_router(routes_paper.router)
 
 @app.get("/")
 def health_check():
-    return {"status": "online", "system": "Autonomous Trading Desk"}
+    return {"status": "online", "system": "Autonomous Trading Desk Monorepo"}

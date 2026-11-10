@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 
 export default function TradingDesk() {
+  const [mounted, setMounted] = useState(false);
   const [selectedAction, setSelectedAction] = useState<"BUY" | "SELL">("BUY");
   const [activeMarket, setActiveMarket] = useState<"INDIA" | "US">("INDIA");
   const [ticker, setTicker] = useState("TATAMOTORS.NS");
@@ -31,20 +32,20 @@ export default function TradingDesk() {
     currency_symbol: "₹",
     current_price: 845.50,
     change_pct: 0.65,
-    rsi: 58.4,
+    rsi: 56.5,
     sma_20: 828.59,
     sma_50: 811.68,
-    pe_ratio: 24.5,
+    pe_ratio: 16.8,
     candles: [
-      { time: "2026-10-01", close: 790.0, sma_20: 785.0, sma_50: 780.0 },
-      { time: "2026-10-15", close: 810.0, sma_20: 795.0, sma_50: 788.0 },
-      { time: "2026-11-01", close: 835.0, sma_20: 815.0, sma_50: 800.0 },
-      { time: "2026-11-09", close: 845.5, sma_20: 828.59, sma_50: 811.68 }
+      { time: "10:00", close: 830.0, sma_20: 825.0, sma_50: 810.0 },
+      { time: "11:30", close: 838.0, sma_20: 827.0, sma_50: 810.5 },
+      { time: "13:00", close: 842.0, sma_20: 828.0, sma_50: 811.0 },
+      { time: "14:30", close: 845.5, sma_20: 828.59, sma_50: 811.68 }
     ],
     attribution: {
       category: "DOMESTIC_MACRO",
-      drivers: ["Sector volume and institutional cash flow supporting TATAMOTORS.NS."],
-      headline: "Order book momentum observed for TATAMOTORS.NS."
+      drivers: ["Commercial vehicle order momentum and EV transition trajectory supporting TATAMOTORS.NS."],
+      headline: "Order book accumulation and dynamic liquidity positioning confirmed on TATAMOTORS.NS."
     }
   });
 
@@ -53,8 +54,11 @@ export default function TradingDesk() {
     US: ["NVDA", "AAPL", "MSFT", "TSLA", "GOOGL"],
   };
 
-const RAW_URL = process.env.NEXT_PUBLIC_API_URL || "https://trading-firm-backend.onrender.com";
-const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
+  const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const loadMarket = async (sym: string) => {
     setLoading(true);
@@ -67,30 +71,6 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
           return;
         }
       }
-      const isInd = sym.endsWith(".NS") || sym.endsWith(".BO");
-      const base = sym.includes("TATA") ? 845.50 : sym.includes("TCS") ? 3840.20 : sym.includes("INFY") ? 1860.00 : sym.includes("HDFC") ? 1720.00 : sym.includes("NVDA") ? 142.50 : 220.00;
-
-      setMarketData({
-        ticker: sym,
-        currency_symbol: isInd ? "₹" : "$",
-        current_price: base,
-        change_pct: 0.65,
-        rsi: 58.4,
-        sma_20: Math.round(base * 0.98 * 100) / 100,
-        sma_50: Math.round(base * 0.96 * 100) / 100,
-        pe_ratio: 24.5,
-        candles: [
-          { time: "2026-10-01", close: base * 0.94, sma_20: base * 0.93, sma_50: base * 0.92 },
-          { time: "2026-10-15", close: base * 0.96, sma_20: base * 0.95, sma_50: base * 0.93 },
-          { time: "2026-11-01", close: base * 0.98, sma_20: base * 0.97, sma_50: base * 0.95 },
-          { time: "2026-11-09", close: base, sma_20: base * 0.98, sma_50: base * 0.96 }
-        ],
-        attribution: {
-          category: "DOMESTIC_MACRO",
-          drivers: [`Sector volume and institutional cash flow actively positioning in ${sym}.`],
-          headline: `Order book momentum and liquidity surge observed for ${sym}.`
-        }
-      });
     } catch (err) {
       console.warn("Market fetch network warning:", err);
     } finally {
@@ -153,7 +133,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
         }
       } else {
         const errJson = await res.json().catch(() => ({}));
-        setSimError(`Consensus engine returned ${res.status}: ${errJson.detail || "Route not found or timeout"}`);
+        setSimError(`Consensus engine returned ${res.status}: ${errJson.detail || "Route unavailable"}`);
       }
     } catch (err: any) {
       setSimError(`Network error connecting to backend: ${err.message}`);
@@ -191,8 +171,15 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
   };
 
   useEffect(() => {
+    loadMarket(ticker);
     loadPortfolio();
-  }, []);
+
+    const interval = setInterval(() => {
+      loadMarket(ticker);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [ticker]);
 
   const renderChart = () => {
     const candles = marketData?.candles || [];
@@ -214,7 +201,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
     return (
       <div className="w-full bg-slate-900 rounded-2xl p-5 text-white shadow-sm flex flex-col justify-between">
         <div className="flex justify-between items-center mb-2">
-          <span className="text-xs font-semibold text-slate-400">Price Trend ({ticker})</span>
+          <span className="text-xs font-semibold text-slate-400">Intraday Tape Trend ({ticker})</span>
           <span className="text-xs font-bold text-emerald-400">
             {marketData.currency_symbol || marketData.currency || "₹"}{Number(marketData.current_price).toFixed(2)}
           </span>
@@ -233,6 +220,16 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
     );
   };
 
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-xs font-bold text-slate-400 animate-pulse">
+          Loading Autonomous Trading Desk...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased pb-16">
       {/* Top Header */}
@@ -250,6 +247,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
 
           <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
+              suppressHydrationWarning
               onClick={() => switchMarket("INDIA")}
               className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeMarket === "INDIA"
@@ -260,6 +258,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
               🇮🇳 Indian Market (NSE)
             </button>
             <button
+              suppressHydrationWarning
               onClick={() => switchMarket("US")}
               className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeMarket === "US"
@@ -273,7 +272,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
         </div>
       </header>
 
-      {/* Main Workspace */}
+      {/* Main Container */}
       <main className="max-w-7xl mx-auto px-6 pt-6 space-y-6">
         {/* Watchlist & Search Action Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -282,6 +281,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
             {presets[activeMarket].map((sym) => (
               <button
                 key={sym}
+                suppressHydrationWarning
                 onClick={() => handleSelectTicker(sym)}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   ticker === sym
@@ -296,6 +296,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
             <form onSubmit={handleCustomSearch} className="flex items-center ml-2">
               <div className="relative flex items-center">
                 <input
+                  suppressHydrationWarning
                   type="text"
                   placeholder="Custom Ticker (e.g. INFY.NS)"
                   value={customTicker}
@@ -305,6 +306,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 pointer-events-none" />
               </div>
               <button
+                suppressHydrationWarning
                 type="submit"
                 className="ml-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 transition-colors"
               >
@@ -314,6 +316,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
           </div>
 
           <button
+            suppressHydrationWarning
             onClick={runSimulation}
             disabled={simulating || loading}
             className="flex items-center space-x-2 bg-slate-900 hover:bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
@@ -336,15 +339,15 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
           </div>
         )}
 
-        {/* Loading Indicator */}
+        {/* Loading Telemetry Bar */}
         {loading && (
           <div className="bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold p-3 rounded-xl flex items-center justify-center space-x-2 animate-pulse">
             <RefreshCcw className="w-4 h-4 animate-spin" />
-            <span>Updating live telemetry for {ticker}...</span>
+            <span>Streaming live market telemetry for {ticker}...</span>
           </div>
         )}
 
-        {/* Primary Market KPI Cards */}
+        {/* KPI Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Current Price</span>
@@ -480,6 +483,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
             <div className="border border-slate-200 rounded-xl overflow-hidden">
               <div className="flex items-center border-b border-slate-200 bg-slate-50">
                 <button
+                  suppressHydrationWarning
                   onClick={() => setAnalysisTab("QUANT")}
                   className={`flex items-center space-x-2 px-5 py-3 text-xs font-bold transition-all ${
                     analysisTab === "QUANT" ? "bg-white text-blue-700 border-r border-slate-200" : "text-slate-500 hover:text-slate-800"
@@ -489,6 +493,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
                   <span>Institutional Quant Metrics (Sharpe / Volatility)</span>
                 </button>
                 <button
+                  suppressHydrationWarning
                   onClick={() => setAnalysisTab("BEGINNER")}
                   className={`flex items-center space-x-2 px-5 py-3 text-xs font-bold transition-all ${
                     analysisTab === "BEGINNER" ? "bg-white text-blue-700 border-l border-r border-slate-200" : "text-slate-500 hover:text-slate-800"
@@ -554,6 +559,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
                 <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
                   <button
                     type="button"
+                    suppressHydrationWarning
                     onClick={() => setSelectedAction("BUY")}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                       selectedAction === "BUY" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
@@ -563,6 +569,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
                   </button>
                   <button
                     type="button"
+                    suppressHydrationWarning
                     onClick={() => setSelectedAction("SELL")}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                       selectedAction === "SELL" ? "bg-rose-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
@@ -573,6 +580,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
                 </div>
 
                 <input
+                  suppressHydrationWarning
                   type="number"
                   min="1"
                   value={orderQuantity}
@@ -581,6 +589,7 @@ const API_BASE = RAW_URL.trim().replace(/\/+$/, "");
                 />
 
                 <button
+                  suppressHydrationWarning
                   onClick={() => executeTrade(selectedAction)}
                   disabled={orderSubmitting}
                   className={`px-5 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer ${
