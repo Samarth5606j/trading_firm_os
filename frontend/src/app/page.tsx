@@ -10,10 +10,11 @@ export default function TradingDesk() {
   const [mounted, setMounted] = useState(false);
   const [selectedAction, setSelectedAction] = useState<"BUY" | "SELL">("BUY");
   const [activeMarket, setActiveMarket] = useState<"INDIA" | "US">("INDIA");
-  const [ticker, setTicker] = useState("INFY.NS");
+  const [ticker, setTicker] = useState("NVDA");
   const [customTicker, setCustomTicker] = useState("");
   const [simResult, setSimResult] = useState<any>(null);
   const [simError, setSimError] = useState<string | null>(null);
+  const [bracketAlert, setBracketAlert] = useState<string | null>(null);
   const [analysisTab, setAnalysisTab] = useState<"QUANT" | "BEGINNER">("QUANT");
   const [loading, setLoading] = useState(false);
   const [simulating, setSimulating] = useState(false);
@@ -22,37 +23,33 @@ export default function TradingDesk() {
   const [wsConnected, setWsConnected] = useState(false);
 
   const [portfolio, setPortfolio] = useState<any>({
-    inr_cash: 89591.57,
-    usd_cash: 7149.65,
-    total_trades: 8,
+    inr_cash: 100000.00,
+    usd_cash: 10000.00,
+    total_trades: 0,
     recent_orders: []
   });
 
-  const [positions, setPositions] = useState<any[]>([
-    { ticker: "TSLA", quantity: 5, avg_price: 378.20, currency_symbol: "$" },
-    { ticker: "AAPL", quantity: 8, avg_price: 350.84, currency_symbol: "$" },
-    { ticker: "INFY.NS", quantity: 15, avg_price: 1145.00, currency_symbol: "₹" }
-  ]);
+  const [positions, setPositions] = useState<any[]>([]);
 
   const [marketData, setMarketData] = useState<any>({
-    ticker: "INFY.NS",
-    currency_symbol: "₹",
-    current_price: 1154.10,
-    change_pct: 0.23,
-    rsi: 74.7,
-    sma_20: 1149.76,
-    sma_50: 1150.28,
-    pe_ratio: 24.5,
+    ticker: "NVDA",
+    currency_symbol: "$",
+    current_price: 168.79,
+    change_pct: -2.30,
+    rsi: 67.7,
+    sma_20: 168.48,
+    sma_50: 168.35,
+    pe_ratio: 0,
     candles: [
-      { time: "10:00", close: 1146.0, sma_20: 1144.0, sma_50: 1148.0 },
-      { time: "11:30", close: 1148.5, sma_20: 1146.0, sma_50: 1149.0 },
-      { time: "13:00", close: 1151.0, sma_20: 1148.0, sma_50: 1150.0 },
-      { time: "14:30", close: 1154.1, sma_20: 1149.76, sma_50: 1150.28 }
+      { time: "10:00", close: 165.0, sma_20: 164.0, sma_50: 163.0 },
+      { time: "11:30", close: 166.5, sma_20: 165.5, sma_50: 164.5 },
+      { time: "13:00", close: 169.5, sma_20: 167.5, sma_50: 166.5 },
+      { time: "14:30", close: 168.79, sma_20: 168.48, sma_50: 168.35 }
     ],
     attribution: {
-      category: "DOMESTIC_MACRO",
-      drivers: ["Intraday sector capital rebalancing and order book depth actively tracking INFY.NS."],
-      headline: "Order book accumulation and dynamic liquidity positioning confirmed on INFY.NS."
+      category: "MACRO_DOMINATED",
+      drivers: ["Intraday sector capital rebalancing and order book depth actively tracking NVDA."],
+      headline: "Order book accumulation and dynamic liquidity positioning confirmed on NVDA."
     }
   });
 
@@ -94,25 +91,21 @@ export default function TradingDesk() {
       if (portRes.ok) setPortfolio(await portRes.json());
       if (posRes.ok) {
         const posData = await posRes.json();
-        if (posData.positions && posData.positions.length > 0) {
-          setPositions(posData.positions);
-        }
+        setPositions(posData.positions || []);
       }
     } catch (err) {
       console.warn("Portfolio fetch warning:", err);
     }
   };
 
-  // WebSocket Live Second-by-Second Tape Engine
   useEffect(() => {
     if (!mounted) return;
 
     loadMarket(ticker);
     loadPortfolio();
 
-    // Construct ws url
     const wsUrl = `${API_BASE.replace(/^http/, "ws")}/api/market/ws/${ticker}`;
-    
+
     try {
       if (wsRef.current) wsRef.current.close();
       const ws = new WebSocket(wsUrl);
@@ -121,11 +114,20 @@ export default function TradingDesk() {
       ws.onmessage = (event) => {
         try {
           const tick = JSON.parse(event.data);
+
+          if (tick.bracket_alerts && tick.bracket_alerts.length > 0) {
+            const alertItem = tick.bracket_alerts[0];
+            setBracketAlert(
+              `⚡ ${alertItem.reason.replace(/_/g, " ")}: Auto-sold ${alertItem.quantity} share(s) of ${alertItem.ticker} at ${tick.currency_symbol}${alertItem.trigger_price.toFixed(2)}`
+            );
+            loadPortfolio();
+          }
+
           setMarketData((prev: any) => {
             if (!prev || prev.ticker !== tick.ticker) return prev;
             const updatedPrice = tick.current_price;
             const updatedCandles = [...(prev.candles || [])];
-            
+
             if (updatedCandles.length > 0) {
               updatedCandles[updatedCandles.length - 1] = {
                 ...updatedCandles[updatedCandles.length - 1],
@@ -221,7 +223,8 @@ export default function TradingDesk() {
         }),
       });
       if (res.ok) {
-        alert(`Executed paper ${action} order for ${orderQuantity} share(s) of ${ticker}.`);
+        const fill = await res.json();
+        alert(`Executed paper ${action} order for ${orderQuantity} share(s) of ${ticker} at ${fill.executed_price}. Armed Stop-Loss: ${fill.stop_loss}, Take-Profit: ${fill.take_profit}.`);
         await loadPortfolio();
       } else {
         const err = await res.json().catch(() => ({ detail: "Order rejected." }));
@@ -385,6 +388,7 @@ export default function TradingDesk() {
           </button>
         </div>
 
+        {/* Simulation Error Banner */}
         {simError && (
           <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold p-4 rounded-2xl flex items-center justify-between">
             <div className="flex items-center space-x-2">
@@ -392,6 +396,16 @@ export default function TradingDesk() {
               <span>{simError}</span>
             </div>
             <button onClick={() => setSimError(null)} className="text-rose-500 hover:text-rose-800 underline ml-4">
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Automated Bracket Trigger Alert Banner */}
+        {bracketAlert && (
+          <div className="bg-amber-50 border border-amber-300 text-amber-900 text-xs font-bold p-4 rounded-2xl flex items-center justify-between shadow-xs">
+            <span>{bracketAlert}</span>
+            <button onClick={() => setBracketAlert(null)} className="text-amber-700 hover:text-amber-950 underline ml-4">
               Dismiss
             </button>
           </div>
@@ -476,59 +490,60 @@ export default function TradingDesk() {
         </div>
 
         {/* Real-Time Positions & PnL Tracker */}
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <TrendingUp className="w-5 h-5 text-emerald-600" />
-              <h3 className="font-bold text-sm text-slate-900">Active Holdings & Real-Time Unrealized PnL</h3>
+        {positions.length > 0 && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <TrendingUp className="w-5 h-5 text-emerald-600" />
+                <h3 className="font-bold text-sm text-slate-900">Active Holdings & Real-Time Unrealized PnL</h3>
+              </div>
+              <span className="text-xs text-slate-400 font-medium">Armed with automated ±2.5% SL / +3.75% TP brackets</span>
             </div>
-            <span className="text-xs text-slate-400 font-medium">Auto-calculated against live ticker quotes</span>
-          </div>
 
-          <div className="border border-slate-200 rounded-xl overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
-                <tr>
-                  <th className="px-4 py-3">Asset</th>
-                  <th className="px-4 py-3">Shares Held</th>
-                  <th className="px-4 py-3">Avg Cost</th>
-                  <th className="px-4 py-3">Live Market Price</th>
-                  <th className="px-4 py-3">Total Invested</th>
-                  <th className="px-4 py-3">Current Value</th>
-                  <th className="px-4 py-3">Unrealized PnL</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {positions.map((p) => {
-                  // Resolve live price dynamically if matched with active ticker
-                  const livePrice = (p.ticker === marketData.ticker) ? marketData.current_price : p.avg_price * 1.025;
-                  const invested = p.quantity * p.avg_price;
-                  const currentVal = p.quantity * livePrice;
-                  const pnl = currentVal - invested;
-                  const pnlPct = (pnl / invested) * 100;
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase">
+                  <tr>
+                    <th className="px-4 py-3">Asset</th>
+                    <th className="px-4 py-3">Shares Held</th>
+                    <th className="px-4 py-3">Avg Cost</th>
+                    <th className="px-4 py-3">Live Market Price</th>
+                    <th className="px-4 py-3">Total Invested</th>
+                    <th className="px-4 py-3">Current Value</th>
+                    <th className="px-4 py-3">Unrealized PnL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {positions.map((p) => {
+                    const livePrice = (p.ticker === marketData.ticker) ? marketData.current_price : p.avg_price;
+                    const invested = p.quantity * p.avg_price;
+                    const currentVal = p.quantity * livePrice;
+                    const pnl = currentVal - invested;
+                    const pnlPct = invested > 0 ? (pnl / invested) * 100 : 0;
 
-                  return (
-                    <tr key={p.ticker} className="hover:bg-slate-50/50">
-                      <td className="px-4 py-2.5 font-bold text-slate-800">{p.ticker}</td>
-                      <td className="px-4 py-2.5 font-semibold text-slate-700">{p.quantity}</td>
-                      <td className="px-4 py-2.5 text-slate-600">{p.currency_symbol}{p.avg_price.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 font-bold text-slate-900">{p.currency_symbol}{livePrice.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 text-slate-600">{p.currency_symbol}{invested.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 font-bold text-slate-900">{p.currency_symbol}{currentVal.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 font-bold">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-black ${
-                          pnl >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
-                        }`}>
-                          {pnl >= 0 ? "+" : ""}{p.currency_symbol}{pnl.toFixed(2)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={p.ticker} className="hover:bg-slate-50/50">
+                        <td className="px-4 py-2.5 font-bold text-slate-800">{p.ticker}</td>
+                        <td className="px-4 py-2.5 font-semibold text-slate-700">{p.quantity}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{p.currency_symbol}{p.avg_price.toFixed(2)}</td>
+                        <td className="px-4 py-2.5 font-bold text-slate-900">{p.currency_symbol}{livePrice.toFixed(2)}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{p.currency_symbol}{invested.toFixed(2)}</td>
+                        <td className="px-4 py-2.5 font-bold text-slate-900">{p.currency_symbol}{currentVal.toFixed(2)}</td>
+                        <td className="px-4 py-2.5 font-bold">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-black ${
+                            pnl >= 0 ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                          }`}>
+                            {pnl >= 0 ? "+" : ""}{p.currency_symbol}{pnl.toFixed(2)} ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%)
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Consensus & Deterministic Risk Execution */}
         {simResult && (
@@ -658,7 +673,7 @@ export default function TradingDesk() {
                   Deploy Paper Order ({ticker})
                 </p>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  Simulates execution slippage (0.05% - 0.15%) and credits/debits the isolated currency vault.
+                  Simulates execution slippage (0.05% - 0.15%) and arms automated ±2.5% Stop-Loss / +3.75% Take-Profit brackets.
                 </p>
               </div>
 
@@ -712,7 +727,7 @@ export default function TradingDesk() {
           </div>
         )}
 
-        {/* Paper Portfolio Cash Vaults */}
+        {/* Paper Portfolio Cash Vaults & Order Book */}
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
@@ -772,7 +787,9 @@ export default function TradingDesk() {
                         <td className="px-4 py-2.5 text-emerald-600 font-medium">{o.take_profit}</td>
                         <td className="px-4 py-2.5 text-slate-400">{o.fee}</td>
                         <td className="px-4 py-2.5">
-                          <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-semibold">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                            o.status.includes("TRIGGERED") ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"
+                          }`}>
                             {o.status}
                           </span>
                         </td>
